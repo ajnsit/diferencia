@@ -42,6 +42,10 @@ class NodeEditable (f :: * -> *) where
   editNode       :: forall a. f a -> NodeEditOp f -> f a
   revertNodeEdit :: forall a. f a -> NodeEditOp f -> NodeEditOp f
 
+-- Shortcut
+calcRevertNodeEdit :: (NodeEditable f, Align f) => NodeEditOp f -> EditState f -> NodeEditOp f
+calcRevertNodeEdit n c = revertNodeEdit (unExpr (extractExpr c)) n
+
 -- Generic Edit Operation on a Functor Node (a -> b)
 -- a: Current nodes
 -- b: New nodes
@@ -50,7 +54,7 @@ class NodeEditable (f :: * -> *) where
 data Edit a b f c
   = PrimEdit (PrimEdit a b)
   -- Custom edit of the node data.
-  | NodeEdit a (NodeEditOp f) c
+  | NodeEdit (NodeEditOp f) c
   -- Structure specific edit of the "contents" of the node.
   | Edit (f c)
 
@@ -199,19 +203,19 @@ edit ts@(Expr (Edit _)) te =
   in (Expr (PrimEdit (Replace orig final)), Expr (PrimEdit (Replace () final)))
 -- NODE EDIT --
 -- Editing node, and then deleting node, is the same as delete
-edit (Expr (NodeEdit t _ _)) (Expr (PrimEdit (Delete ()))) = (Expr (PrimEdit (Delete t)), Expr (PrimEdit (Delete ())))
+edit (Expr (NodeEdit _ c)) (Expr (PrimEdit (Delete ()))) = (Expr (PrimEdit (Delete (extractExpr c))), Expr (PrimEdit (Delete ())))
 -- TODO: NEEDS DISCUSSION: NOTE: Here we think of inserting something on top of an existing node as a replace.
-edit (Expr (NodeEdit t _ _)) (Expr (PrimEdit (Insert n))) = (Expr (PrimEdit (Replace t n)), Expr (PrimEdit (Replace () n)))
+edit (Expr (NodeEdit _ c)) (Expr (PrimEdit (Insert n))) = (Expr (PrimEdit (Replace (extractExpr c) n)), Expr (PrimEdit (Replace () n)))
 -- Editing node, and then replacing node, is the same as replace
-edit (Expr (NodeEdit t _ _)) (Expr (PrimEdit (Replace () b))) = (Expr (PrimEdit (Replace t b)), Expr (PrimEdit (Replace () b)))
+edit (Expr (NodeEdit _ c)) (Expr (PrimEdit (Replace () b))) = (Expr (PrimEdit (Replace (extractExpr c) b)), Expr (PrimEdit (Replace () b)))
 -- If we edit nodes, and then edit children, revert node edit and merge child edits.
-edit (Expr (NodeEdit t n  c1)) c2@(Expr (Edit _)) =
+edit (Expr (NodeEdit n c1)) c2@(Expr (Edit _)) =
   let (cs, ce) = edit c1 c2
-  in (cs, Expr (NodeEdit () (revertNodeEdit (unExpr t) n) ce))
+  in (cs, Expr (NodeEdit (calcRevertNodeEdit n c1) ce))
 -- Similar procedure of merging, for multiple node edits.
-edit (Expr (NodeEdit t n1 c1)) (Expr (NodeEdit () n2 c2)) =
+edit (Expr (NodeEdit n1 c1)) (Expr (NodeEdit n2 c2)) =
   let (cs, ce) = edit c1 c2
-  in (Expr (NodeEdit t n2 cs), Expr (NodeEdit () (revertNodeEdit (unExpr t) n1) ce))
+  in (Expr (NodeEdit n2 cs), Expr (NodeEdit (calcRevertNodeEdit n1 c1) ce))
 
 -- Zip up two successive edits
 zipDiffState :: (Diffable f, NodeEditable f, Align f)
@@ -232,7 +236,7 @@ wrapState t@(Expr t') (Expr e) = Expr $ case e of
   PrimEdit (Delete ())    -> PrimEdit (Delete t)
   PrimEdit (Replace () b) -> PrimEdit (Replace t b)
   PrimEdit (Insert b)     -> PrimEdit (Insert b)
-  NodeEdit () n c         -> NodeEdit t n (wrapState t c)
+  NodeEdit n c            -> NodeEdit n (wrapState t c)
   Edit c                  -> Edit (alignWith zipState t' c)
 
 -- Zip a non-exclusive union of Tree and Editor.
@@ -251,7 +255,7 @@ extractEdit (Expr x) = Expr $ case x of
   PrimEdit (Delete _)    -> PrimEdit (Delete ())
   PrimEdit (Replace _ b) -> PrimEdit (Replace () b)
   PrimEdit (Insert b)    -> PrimEdit (Insert b)
-  NodeEdit _ n c         -> NodeEdit () n (extractEdit c)
+  NodeEdit n c           -> NodeEdit n (extractEdit c)
   Edit c                 -> Edit $ fmap extractEdit c
 
 -- Extract the original expr from the edit state
@@ -261,7 +265,7 @@ extractExpr (Expr x) = case x of
   PrimEdit (Delete t)    -> t
   PrimEdit (Replace t _) -> t
   PrimEdit (Insert _)    -> nilExpr
-  NodeEdit t _ _         -> t
+  NodeEdit _ c           -> extractExpr c
   Edit c                 -> Expr (fmap extractExpr c)
 
 -- Keep the underlying expression the same, but change the edit to Nop
@@ -271,17 +275,17 @@ resetExpr (Expr t') = case t' of
   PrimEdit (Delete t)    -> keep t
   PrimEdit (Replace t _) -> keep t
   PrimEdit (Insert _)    -> keep nilExpr
-  NodeEdit t _ _         -> keep t
+  NodeEdit _ c           -> keep (extractExpr c)
   Edit c                 -> Expr (Edit (fmap resetExpr c))
 
 -- Compute an edit operation which, when applied, will revert existing edits
-revertEdit :: (NodeEditable f, Functor f) => EditState f -> EditState f
+revertEdit :: (NodeEditable f, Align f) => EditState f -> EditState f
 revertEdit (Expr e) = Expr $ case e of
   PrimEdit (Nop t)       -> PrimEdit (Nop t)
   PrimEdit (Delete t)    -> PrimEdit (Insert t)
   PrimEdit (Replace t b) -> PrimEdit (Replace b t)
   PrimEdit (Insert a)    -> PrimEdit (Delete a)
-  NodeEdit t n c         -> NodeEdit (Expr (editNode (unExpr t) n)) (revertNodeEdit (unExpr t) n) (revertEdit c)
+  NodeEdit n c           -> NodeEdit (calcRevertNodeEdit n c) (revertEdit c)
   Edit c                 -> Edit $ fmap revertEdit c
 
 -- Frequently used shortcuts
