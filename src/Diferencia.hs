@@ -302,7 +302,7 @@ revertEdit (Expr e) = Expr $ case e of
 
 -- Frequently used shortcuts
 
--- Primitive Editor constructors
+-- Editor constructors
 eNop, pass :: Editor f
 eNop = Expr (PrimEdit (Nop ()))
 pass = eNop
@@ -312,8 +312,12 @@ eIns :: Expr f -> Editor f
 eIns a = Expr (PrimEdit (Insert a))
 eRep :: Expr f -> Editor f
 eRep b = Expr (PrimEdit (Replace () b))
+eEdit :: f (Editor f) -> Editor f
+eEdit f = Expr (Edit f)
+eNodeEdit :: NodeEditOp f -> Editor f -> Editor f
+eNodeEdit n c = Expr (NodeEdit n c)
 
--- Primitive edit state constructors
+-- Edit state constructors
 esNop, keep :: Expr f -> EditState f
 esNop a = Expr (PrimEdit (Nop a))
 keep a = esNop a
@@ -323,3 +327,7 @@ esIns :: Expr f -> EditState f
 esIns a = Expr (PrimEdit (Insert a))
 esRep :: Expr f -> Expr f -> EditState f
 esRep a b = Expr (PrimEdit (Replace a b))
+esEdit :: f (EditState f) -> EditState f
+esEdit f = Expr (Edit f)
+esNodeEdit :: NodeEditOp f -> EditState f -> EditState f
+esNodeEdit n c = Expr (NodeEdit n c)
