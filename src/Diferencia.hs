@@ -24,8 +24,8 @@ import qualified Data.Vector   as V
 --       (because UndecidableInstances)
 newtype Expr f = Expr { unExpr :: f (Expr f) }
 
--- A Primitive edit
-data PrimEdit a b
+-- A Primitive edit operation
+data PrimEditOp a b
   -- Do nothing
   = Nop a
   -- Delete the node
@@ -52,7 +52,7 @@ calcRevertNodeEdit n c = revertNodeEdit (unExpr (extractOriginal c)) n
 -- f: Shape of the nodes
 -- c: Continuation edit operation
 data Edit a b f c
-  = PrimEdit (PrimEdit a b)
+  = PrimEdit (PrimEditOp a b)
   -- Custom edit of the node data.
   | NodeEdit (NodeEditOp f) c
   -- Structure specific edit of the "contents" of the node.
@@ -102,7 +102,7 @@ diffList l1 l2 = map diffReplacement (diffBy (==) l1 l2)
     diffReplacement (Delete y)    = Expr (PrimEdit (Delete y))
     diffReplacement (Replace x y) = diffExpr x y
 
-diffBy :: (a -> a -> Bool) -> [a] -> [a] -> [PrimEdit a a]
+diffBy :: (a -> a -> Bool) -> [a] -> [a] -> [PrimEditOp a a]
 diffBy eq xs' ys' = reverse (snd (lcs (V.length xs) (V.length ys)))
   where
     xs = V.fromList xs'
@@ -110,7 +110,7 @@ diffBy eq xs' ys' = reverse (snd (lcs (V.length xs) (V.length ys)))
 
     lcs = M.memo2 impl
 
-    -- impl :: Int -> Int -> (Int, [PrimEdit a a])
+    -- impl :: Int -> Int -> (Int, [PrimEditOp a a])
     impl 0 0 = ((0::Int), [])
     impl 0 m = case lcs 0 (m-1) of
         (w, e) -> (w + 1, Insert (ys V.! (m - 1)) : e)
